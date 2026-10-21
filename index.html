@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AquaSentinel: Vellore Pilot</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet.js for Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style> 
+        body { background-color: #0b132b; color: #e2e8f0; } 
+        #map { height: 440px; width: 100%; border-radius: 12px; z-index: 1; }
+    </style>
+</head>
+<body class="p-6">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header & Executive KPI Cards -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-700 pb-4">
+            <div>
+                <h1 class="text-3xl font-bold text-blue-400 flex items-center gap-2">
+                    💧 AquaSentinel <span class="text-xs bg-blue-900/60 text-blue-300 px-2 py-1 rounded border border-blue-500/30">Vellore Pilot</span>
+                </h1>
+                <p class="text-slate-400 text-sm mt-1">Trust-Aware Piped Water Ingress Early-Warning & Resource Triage Platform</p>
+            </div>
+            <div class="mt-3 md:mt-0 flex gap-3 text-xs">
+                <div class="bg-slate-800 px-3 py-2 rounded-lg border border-slate-700">
+                    <span class="text-slate-400 block">Avg City Risk</span>
+                    <span id="statAvgRisk" class="text-lg font-bold text-emerald-400">0.00</span>
+                </div>
+                <div class="bg-slate-800 px-3 py-2 rounded-lg border border-slate-700">
+                    <span class="text-slate-400 block">Red Flag Wards</span>
+                    <span id="statRedWards" class="text-lg font-bold text-red-400">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Automated Public Health Advisories Banner -->
+        <div id="advisoryContainer" class="hidden space-y-2"></div>
+
+        <!-- Main Workspace -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Sidebar Controls -->
+            <div class="bg-slate-800/90 p-5 rounded-xl border border-slate-700 space-y-5 shadow-xl">
+                <h2 class="text-lg font-semibold text-white border-b border-slate-700 pb-2">Crisis & Scenario Variables</h2>
+                
+                <div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-300">Daily Rainfall:</span>
+                        <span id="rainVal" class="font-bold text-blue-400">10 mm</span>
+                    </div>
+                    <input type="range" id="rain" min="0" max="100" value="10" class="w-full mt-2 accent-blue-500" oninput="runSimulation()">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 pt-2">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Available Test Kits</label>
+                        <input type="number" id="kits" value="20" min="0" class="w-full bg-slate-900 border border-slate-700 text-white p-2 rounded-lg text-sm" onchange="runSimulation()">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Available Tankers</label>
+                        <input type="number" id="tankers" value="5" min="0" class="w-full bg-slate-900 border border-slate-700 text-white p-2 rounded-lg text-sm" onchange="runSimulation()">
+                    </div>
+                </div>
+                
+                <h2 class="text-lg font-semibold text-white border-b border-slate-700 pb-2 pt-3">What-If Infrastructure</h2>
+                
+                <div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-300">AMRUT Pipelines:</span>
+                        <span id="pipeVal" class="font-bold text-emerald-400">0%</span>
+                    </div>
+                    <input type="range" id="pipe" min="0" max="100" value="0" class="w-full mt-2 accent-emerald-500" oninput="runSimulation()">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-300">Sewer Networks:</span>
+                        <span id="sewerVal" class="font-bold text-emerald-400">0%</span>
+                    </div>
+                    <input type="range" id="sewer" min="0" max="100" value="0" class="w-full mt-2 accent-emerald-500" oninput="runSimulation()">
+                </div>
+            </div>
+
+            <!-- Map & Triage Output -->
+            <div class="md:col-span-2 space-y-6">
+                <!-- Leaflet Map with Custom Overlay -->
+                <div class="bg-slate-800/90 p-3 rounded-xl border border-slate-700 relative shadow-xl">
+                    <div id="map"></div>
+                    <div class="absolute bottom-6 right-6 bg-slate-900/90 backdrop-blur p-3 rounded-lg border border-slate-700 text-xs space-y-1 z-[1000]">
+                        <div class="font-semibold text-slate-300 mb-1">Ingress Risk Level</div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#EF553B]"></span> Red (>0.6 High)</div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#FFA15A]"></span> Amber (0.3 - 0.6)</div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#00CC96]"></span> Green (&lt;0.3 Low)</div>
+                    </div>
+                </div>
+
+                <!-- Greedy Knapsack Action Queue -->
+                <div class="bg-slate-800/90 p-5 rounded-xl border border-slate-700 shadow-xl">
+                    <div class="flex justify-between items-center mb-3">
+                        <h2 class="text-lg font-semibold text-white">Triage Deployment Queue (Greedy Knapsack)</h2>
+                        <span id="resourceMeta" class="text-xs text-slate-400"></span>
+                    </div>
+                    <div class="max-h-60 overflow-y-auto">
+                        <table class="w-full text-left">
+                            <thead class="sticky top-0 bg-slate-800 text-slate-400 text-xs border-b border-slate-700">
+                                <tr>
+                                    <th class="p-2">Ward</th>
+                                    <th class="p-2">Risk Score</th>
+                                    <th class="p-2">Truth Tap Audit</th>
+                                    <th class="p-2">Assigned Interventions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="triageBody" class="text-sm divider-y divider-slate-700"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Seeded Pseudo-Random Generator for Consistent Ward Distribution
+        function seededRandom(seed) {
+            let x = Math.sin(seed++) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // Initialize 60 Synthetic Wards across Vellore Municipal Region
+        const wards = [];
+        for (let i = 1; i <= 60; i++) {
+            wards.push({
+                id: `Ward ${i}`,
+                lat: 12.88 + (seededRandom(i * 1.1) * 0.07),
+                lon: 79.10 + (seededRandom(i * 2.2) * 0.07),
+                population: Math.floor(5000 + (seededRandom(i * 3.3) * 10000)),
+                supplyDays: Math.floor(1 + (seededRandom(i * 4.4) * 4)),
+                septicPct: 0.3 + (seededRandom(i * 5.5) * 0.6)
+            });
+        }
+
+        // Map Setup
+        const map = L.map('map').setView([12.915, 79.135], 12);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        let markers = [];
+
+        function runSimulation() {
+            const rain = parseInt(document.getElementById('rain').value);
+            const pipeUp = parseInt(document.getElementById('pipe').value);
+            const sewerUp = parseInt(document.getElementById('sewer').value);
+            let availableKits = parseInt(document.getElementById('kits').value || 0);
+            let availableTankers = parseInt(document.getElementById('tankers').value || 0);
+
+            const initialKits = availableKits;
+            const initialTankers = availableTankers;
+
+            document.getElementById('rainVal').innerText = `${rain} mm`;
+            document.getElementById('pipeVal').innerText = `${pipeUp}%`;
+            document.getElementById('sewerVal').innerText = `${sewerUp}%`;
+
+            let processedWards = [];
+            let redCount = 0;
+            let totalRisk = 0;
+
+            // 1. Ingress Risk Engine & Truth Tap Anomaly Detection
+            wards.forEach((w, idx) => {
+                const simSeptic = w.septicPct * (1 - (sewerUp / 100));
+                const basePressureLoss = 1 - (w.supplyDays / 7);
+                const simPressureLoss = basePressureLoss * (1 - (pipeUp / 100));
+
+                const rainPenalty = (rain / 100) * simSeptic;
+                const baseRisk = simPressureLoss * simSeptic * (w.population / 15000);
+                let riskScore = Math.min(Math.max(baseRisk + rainPenalty, 0.0), 1.0);
+
+                totalRisk += riskScore;
+                if (riskScore > 0.6) redCount++;
+
+                // Truth Tap Outlier Logic (Detecting sensor noise/implausible combinations)
+                let confidence = "High";
+                if ((simPressureLoss > 0.75 && simSeptic < 0.25) || (idx % 7 === 0 && rain > 40)) {
+                    confidence = "Low (Test First)";
+                }
+
+                processedWards.push({
+                    ...w,
+                    riskScore: riskScore,
+                    simSeptic: simSeptic,
+                    confidence: confidence,
+                    kitAssigned: false,
+                    tankerAssigned: false
+                });
+            });
+
+            // 2. Greedy Knapsack Optimization
+            processedWards.sort((a, b) => {
+                if (a.confidence === "Low (Test First)" && b.confidence !== "Low (Test First)") return -1;
+                if (a.confidence !== "Low (Test First)" && b.confidence === "Low (Test First)") return 1;
+                return b.riskScore - a.riskScore;
+            });
+
+            processedWards.forEach(w => {
+                if ((w.confidence === "Low (Test First)" || w.simSeptic > 0.6) && availableKits > 0) {
+                    w.kitAssigned = true;
+                    availableKits--;
+                }
+                if (w.riskScore > 0.6 && availableTankers > 0) {
+                    w.tankerAssigned = true;
+                    availableTankers--;
+                }
+            });
+
+            // 3. Update Metrics & Advisories
+            const avgRisk = (totalRisk / wards.length).toFixed(2);
+            document.getElementById('statAvgRisk').innerText = avgRisk;
+            document.getElementById('statRedWards').innerText = redCount;
+            document.getElementById('resourceMeta').innerText = `Deployed: ${initialKits - availableKits} Kits | ${initialTankers - availableTankers} Tankers`;
+
+            const advisories = [];
+            if (rain > 50) advisories.push("🌧️ Heavy Rain Warning: Surface run-off ingress risk elevated. Instruct citizens to flush taps for 3 mins.");
+            if (redCount > 12) advisories.push("⚠️ Contamination Spike: Critical risk in multiple wards. Issued priority boil-water directive.");
+            if (availableKits === 0) advisories.push("🚨 Inventory Exhaustion: Field test kits depleted. Requesting urgent emergency restocking from district lab.");
+
+            const advBox = document.getElementById('advisoryContainer');
+            if (advisories.length > 0) {
+                advBox.classList.remove('hidden');
+                advBox.innerHTML = advisories.map(a => `<div class="bg-amber-950/80 border border-amber-600/50 text-amber-200 text-xs p-3 rounded-lg">${a}</div>`).join('');
+            } else {
+                advBox.classList.add('hidden');
+            }
+
+            // 4. Update Map & Table UI
+            markers.forEach(m => map.removeLayer(m));
+            markers = [];
+            document.getElementById('triageBody').innerHTML = '';
+
+            processedWards.forEach(w => {
+                let color = w.riskScore > 0.6 ? '#EF553B' : (w.riskScore > 0.3 ? '#FFA15A' : '#00CC96');
+                let circle = L.circle([w.lat, w.lon], { 
+                    color: color, 
+                    fillColor: color, 
+                    fillOpacity: 0.75, 
+                    radius: 120 + (w.riskScore * 350) 
+                }).bindPopup(`
+                    <div class="text-slate-900 text-xs">
+                        <b>${w.id}</b><br>
+                        Risk Score: <b>${w.riskScore.toFixed(2)}</b><br>
+                        Data Trust: <b>${w.confidence}</b>
+                    </div>
+                `).addTo(map);
+                
+                markers.push(circle);
+
+                let actions = [];
+                if (w.kitAssigned) actions.push("🧪 Test Kit");
+                if (w.tankerAssigned) actions.push("🚛 Tanker Trip");
+
+                if (actions.length > 0) {
+                    let trustBadge = w.confidence === "High" 
+                        ? `<span class="bg-emerald-950 text-emerald-400 text-xs px-2 py-0.5 rounded border border-emerald-800">High</span>`
+                        : `<span class="bg-amber-950 text-amber-400 text-xs px-2 py-0.5 rounded border border-amber-800 font-bold">Low (Test First)</span>`;
+
+                    document.getElementById('triageBody').innerHTML += `
+                        <tr class="border-b border-slate-700/50 hover:bg-slate-700/30">
+                            <td class="p-2 font-medium">${w.id}</td>
+                            <td class="p-2">${w.riskScore.toFixed(2)}</td>
+                            <td class="p-2">${trustBadge}</td>
+                            <td class="p-2 text-blue-400 font-medium">${actions.join(" + ")}</td>
+                        </tr>`;
+                }
+            });
+
+            map.invalidateSize();
+        }
+
+        window.onload = runSimulation;
+    </script>
+</body>
+</html>
